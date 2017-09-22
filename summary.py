@@ -1,6 +1,6 @@
 from data_preprocess import *
 from copy import deepcopy
-from model import Encoder, Decoder
+from seq2seq import Encoder, Decoder
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -9,6 +9,8 @@ import numpy as np
 import argparse
 
 from greedy_decode import greedy_eval
+import prepare_data as utils
+from training import train_on_batch
 
 def to_tensor(data):
     data1 = Variable(torch.LongTensor(data))
@@ -17,93 +19,61 @@ def to_tensor(data):
 def prepare_training():
     article, title, word2idx, target2idx, maxl = read_textfile()
     vocab_size = len(word2idx)
-    return [article, title, word2idx, target2idx, maxl, vocab_size]
+    article, title = utils.sort_by_length(article, title)
+    article, title, source_lengths, target_lengths = utils.padding(article, title)
+    article, title = utils.indexing(article, title, word2idx, target2idx)
 
-def sort_pad(source, target, word2idx, maxl):
-    pairs = sorted(zip(source, target), key=lambda x: len(x[0]),reverse=True)
-    article, title = zip(*pairs)
-    article, title, source_lengths, target_lengths = padding(list(article), list(title), word2idx, maxl)
-    return [article, title, source_lengths, target_lengths]
+    return [article, title, source_lengths, target_lengths, word2idx, target2idx]
+
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
 
 
-def training(article, title, word2idx, target2idx, maxl, vocab_size, source_lengths, target_lengths, args):
+def train(article, title, word2idx, target2idx, source_lengths, target_lengths, args):
 
-    batch_size_t = args.batch
-    print("source vocab size:", vocab_size)
-    print("target vocab size:", len(target2idx))
-    max_a, max_t = maxl
-    print("max a:{}, max t:{}".format(max_a, max_t))
+    batch_size = args.batch
     train_size = len(article)
+    max_a = max(source_lengths)
+    max_t = max(target_lengths)
+    print("source vocab size:", len(word2idx))
+    print("target vocab size:", len(target2idx))
+    print("max a:{}, max t:{}".format(max_a, max_t))
     print("train_size:",train_size)
-    print("batch_size:",batch_size_t)
+    print("batch_size:",batch_size)
     print("-"*30)
 
-    encoder = Encoder(vocab_size)
-    decoder = Decoder(len(target2idx), max_a)
-    loss_fn = nn.CrossEntropyLoss(size_average=False, ignore_index=0)
-    optimizer_e = torch.optim.Adam(encoder.parameters(), lr=0.005)
-    optimizer_d = torch.optim.Adam(decoder.parameters(), lr=0.005)
-    n_epoch = 2000
+    encoder = Encoder(len(word2idx))
+    decoder = Decoder(len(target2idx))
+    optimizer = torch.optim.RMSprop(list(encoder.parameters()) + list(decoder.parameters()), lr=0.001, weight_decay=0.99999)
+    n_epoch = 5000
     print("Making word index and extend vocab")
-    article, article_tar, title, ext_vocab_all, ext_count = indexing_word(article, title, word2idx, target2idx)
+    #article, article_tar, title, ext_vocab_all, ext_count = indexing_word(article, title, word2idx, target2idx)
     article = to_tensor(article)
     title = to_tensor(title)
-    #article_tar = to_tensor(article_tar)
     print("preprocess done")
-    tar2word = reverse_mapping(target2idx)
+
 
     if args.USE_CUDA:
         encoder.cuda()
         decoder.cuda()
+
     print("start training")
     for epoch in range(n_epoch):
         total_loss = 0
-        batch_n = int(train_size / batch_size_t)
+        batch_n = int(train_size / batch_size)
         for b in range(batch_n):
             # initialization
-            loss = 0
-            optimizer_e.zero_grad()
-            optimizer_d.zero_grad()
-            # split the batch and move to GPU
-            article_b = article[b*batch_size_t: (b+1)*batch_size_t].cuda()
-            title_b = title[b*batch_size_t: (b+1)*batch_size_t].cuda()
-            # split the kength vector and extend vocab
-            ext_vocab = ext_vocab_all[b*batch_size_t: (b+1)*batch_size_t]
-            ext_word_length = ext_count[b*batch_size_t: (b+1)*batch_size_t]
-            s_lengths_b = source_lengths[b*batch_size_t: (b+1)*batch_size_t]
-            t_lengths_b = target_lengths[b*batch_size_t: (b+1)*batch_size_t]
-            batch_size = len(article_b)
-            # truncate the padding to match the shape of packed sequence
-            article_tar_b = article_tar[b*batch_size_t: (b+1)*batch_size_t]
-            article_tar_b = [s[:max(s_lengths_b)] for s in article_tar_b]
-            article_tar_b = to_tensor(article_tar_b).cuda()
-
-            # start running the graph
-            enc_hidden = encoder.init_hidden(batch_size).cuda()
-            enc_out, enc_hidden = encoder(article_b, enc_hidden, s_lengths_b)
-            dec_hidden = enc_hidden[0].unsqueeze(0)
-            dec_input = Variable(torch.LongTensor([[word2idx['SOS']] * batch_size])).view(batch_size,1)
+            batch_x = article[b*batch_size: (b+1)*batch_size]
+            batch_y = title[b*batch_size: (b+1)*batch_size]
             if args.USE_CUDA:
-                dec_input = dec_input.cuda()
-
-            for i in range(max_t):
-                dec_output, dec_hidden = decoder(dec_input, dec_hidden, enc_out, max(s_lengths_b), max(ext_word_length), article_tar_b)
-                #print(tar2word[dec_output.cpu().data.topk(1)[1][0][0]], '|',tar2word[title_b[0][i].data[0]])
-                dec_input = title_b[:,i].unsqueeze(1)
-                loss += loss_fn(dec_output, title_b[:,i])
-                if args.USE_CUDA:
-                    dec_input = dec_input.cuda()
-
-
-            loss_d = torch.div(loss,sum(t_lengths_b))
-            loss_d.backward()
-            optimizer_e.step()
-            optimizer_d.step()
-            current_loss = loss.data[0] / sum(t_lengths_b)
-            total_loss += loss.data[0]
+                batch_x = batch_x.cuda()
+                batch_y = batch_y.cuda()
+            x_lengths = source_lengths[b*batch_size: (b+1)*batch_size]
+            y_lengths = target_lengths[b*batch_size: (b+1)*batch_size]
+            current_loss = train_on_batch(encoder, decoder, optimizer,
+                                         batch_x, batch_y, x_lengths, y_lengths,
+                                         word2idx, target2idx)
 
             print('\repoch:{}/{}, batch:{}/{}, loss:{}'.format(epoch+1, n_epoch, b+1, batch_n, current_loss), end='')
             if b % args.show_res == 0 and b != 0:
@@ -111,16 +81,17 @@ def training(article, title, word2idx, target2idx, maxl, vocab_size, source_leng
                 torch.save(decoder.state_dict(), 'decoder.pth.tar')
                 print('\n'+'-'*30)
                 for i in range(3):
-                    greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), article_tar[i], word2idx, target2idx, encoder, decoder, ext_vocab_all[i], args)
-        print("\naverage loss:" ,total_loss/sum(target_lengths))
-        print('-'*30)
-        for i in range(5):
-            #pass
-            greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), article_tar[i], word2idx, target2idx, encoder, decoder, ext_vocab_all[i], args)
+                    pass
+                    greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0),
+                                article_tar[i], word2idx, target2idx, encoder,
+                                decoder, ext_vocab_all[i], args)
+            total_loss += current_loss
+
     print()
     print("training finished")
     for i in range(10):
-        greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), word2idx, target2idx, encoder, decoder, ext_vocab_all[i], args)
+        greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), word2idx,
+                    target2idx, encoder, decoder, ext_vocab_all[i], args)
 
 
 def beam_search(input_seq, target, word2idx, target2idx,encoder,decoder,args):
@@ -128,7 +99,7 @@ def beam_search(input_seq, target, word2idx, target2idx,encoder,decoder,args):
     target2word = reverse_mapping(target2idx)
     decoded = []
     top_k_list = [] # will contain at most beam size ^ 2 instance
-    top_k_pair = [] # will store (prev_word_id, value, pred_word)
+    top_k_pair = [] # will store (prev_word_id, value, pred_word, prev_hidden)
     trace_back = []
     encoder.train(False)
     decoder.train(False)
@@ -209,6 +180,5 @@ if __name__ == "__main__":
     parser.add_argument("-batch",action="store", type=int)
     args = parser.parse_args()
 
-    article, title, word2idx, target2idx, maxl, vocab_size = prepare_training()
-    article, title, source_lengths, target_lengths = sort_pad(article, title, word2idx,  maxl)
-    training(article, title, word2idx, target2idx, maxl, vocab_size, source_lengths, target_lengths, args)
+    article, title, s_lengths, t_lengths, word2idx, target2idx = prepare_training()
+    train(article, title, word2idx, target2idx, s_lengths, t_lengths, args)

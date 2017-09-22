@@ -46,6 +46,9 @@ class Decoder(nn.Module):
         batch_size = word.size(0)
         embedded = self.embedder(word)
         output, h = self.gru(embedded, hidden)
+        # TESTING vanilla seq2seq
+        return F.softmax(self.output_layer(output.squeeze(1))), h
+
         attention_energy = Variable(torch.zeros(batch_size, max_length)).cuda()
         for t in range(max_length):
             concated = torch.cat((enc_output[:,t,:],output.squeeze(1)),1)
@@ -58,7 +61,6 @@ class Decoder(nn.Module):
         context = self.attention_matrix.bmm(enc_output).squeeze(1)
         concat = torch.cat((output.squeeze(1), context),1)
         concat_out = self.concat_linear(concat)
-        concat_out = output.squeeze(1)
         out = self.output_layer(concat_out)
         output_word = F.softmax(out)    # the distribution of source vocab
         return output_word, h

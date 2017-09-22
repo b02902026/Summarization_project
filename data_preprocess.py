@@ -56,7 +56,7 @@ def read_textfile(DATA_DIR='sumdata/train'):
     title = []
     wc = 3
     max_a, max_t = 0, 0
-    thres = 700000
+    thres = 100
     tc = 0
     with open(os.path.join(DATA_DIR,'train.article.txt'),'r') as fx:
         for line in fx:
@@ -104,7 +104,7 @@ def read_textfile(DATA_DIR='sumdata/train'):
     return [article, title, word2idx, target2idx, (max_a, max_t)]
 
 
-def padding(article, title, word2idx, maxl):
+def padding(article, title, maxl):
     src_l = []
     tgt_l = []
     max_a, max_t = maxl
