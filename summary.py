@@ -22,16 +22,16 @@ def prepare_training():
 def sort_pad(source, target, word2idx, maxl):
     pairs = sorted(zip(source, target), key=lambda x: len(x[0]),reverse=True)
     article, title = zip(*pairs)
-    article, title, source_lengths = padding(list(article), list(title), word2idx, maxl)
-    return [article, title, source_lengths]
+    article, title, source_lengths, target_lengths = padding(list(article), list(title), word2idx, maxl)
+    return [article, title, source_lengths, target_lengths]
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
     torch.save(state, filename)
 
 
-def training(article, title, word2idx, target2idx, maxl, vocab_size, source_lengths, args):
+def training(article, title, word2idx, target2idx, maxl, vocab_size, source_lengths, target_lengths, args):
 
-    batch_size_t = 32
+    batch_size_t = args.batch
     print("source vocab size:", vocab_size)
     print("target vocab size:", len(target2idx))
     max_a, max_t = maxl
@@ -44,9 +44,9 @@ def training(article, title, word2idx, target2idx, maxl, vocab_size, source_leng
     encoder = Encoder(vocab_size)
     decoder = Decoder(len(target2idx), max_a)
     loss_fn = nn.CrossEntropyLoss(size_average=False, ignore_index=0)
-    optimizer_e = torch.optim.Adam(encoder.parameters(), lr=0.001)
-    optimizer_d = torch.optim.Adam(decoder.parameters(), lr=0.001)
-    n_epoch = 50
+    optimizer_e = torch.optim.Adam(encoder.parameters(), lr=0.005)
+    optimizer_d = torch.optim.Adam(decoder.parameters(), lr=0.005)
+    n_epoch = 2000
     print("Making word index and extend vocab")
     article, article_tar, title, ext_vocab_all, ext_count = indexing_word(article, title, word2idx, target2idx)
     article = to_tensor(article)
@@ -74,6 +74,7 @@ def training(article, title, word2idx, target2idx, maxl, vocab_size, source_leng
             ext_vocab = ext_vocab_all[b*batch_size_t: (b+1)*batch_size_t]
             ext_word_length = ext_count[b*batch_size_t: (b+1)*batch_size_t]
             s_lengths_b = source_lengths[b*batch_size_t: (b+1)*batch_size_t]
+            t_lengths_b = target_lengths[b*batch_size_t: (b+1)*batch_size_t]
             batch_size = len(article_b)
             # truncate the padding to match the shape of packed sequence
             article_tar_b = article_tar[b*batch_size_t: (b+1)*batch_size_t]
@@ -83,7 +84,6 @@ def training(article, title, word2idx, target2idx, maxl, vocab_size, source_leng
             # start running the graph
             enc_hidden = encoder.init_hidden(batch_size).cuda()
             enc_out, enc_hidden = encoder(article_b, enc_hidden, s_lengths_b)
-            print(enc_out.size())
             dec_hidden = enc_hidden[0].unsqueeze(0)
             dec_input = Variable(torch.LongTensor([[word2idx['SOS']] * batch_size])).view(batch_size,1)
             if args.USE_CUDA:
@@ -91,31 +91,34 @@ def training(article, title, word2idx, target2idx, maxl, vocab_size, source_leng
 
             for i in range(max_t):
                 dec_output, dec_hidden = decoder(dec_input, dec_hidden, enc_out, max(s_lengths_b), max(ext_word_length), article_tar_b)
+                #print(tar2word[dec_output.cpu().data.topk(1)[1][0][0]], '|',tar2word[title_b[0][i].data[0]])
                 dec_input = title_b[:,i].unsqueeze(1)
                 loss += loss_fn(dec_output, title_b[:,i])
                 if args.USE_CUDA:
                     dec_input = dec_input.cuda()
 
-            loss.backward()
+
+            loss_d = torch.div(loss,sum(t_lengths_b))
+            loss_d.backward()
             optimizer_e.step()
             optimizer_d.step()
-            current_loss = (loss.data[0] / sum(s_lengths_b) )
+            current_loss = loss.data[0] / sum(t_lengths_b)
             total_loss += loss.data[0]
 
             print('\repoch:{}/{}, batch:{}/{}, loss:{}'.format(epoch+1, n_epoch, b+1, batch_n, current_loss), end='')
-            if b % 100 == 0 and b != 0:
+            if b % args.show_res == 0 and b != 0:
                 torch.save(encoder.state_dict(), 'encoder.pth.tar')
                 torch.save(decoder.state_dict(), 'decoder.pth.tar')
                 print('\n'+'-'*30)
                 for i in range(3):
                     greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), article_tar[i], word2idx, target2idx, encoder, decoder, ext_vocab_all[i], args)
-        print("\naverage loss:" ,total_loss/sum(source_lengths))
+        print("\naverage loss:" ,total_loss/sum(target_lengths))
         print('-'*30)
         for i in range(5):
             #pass
             greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), article_tar[i], word2idx, target2idx, encoder, decoder, ext_vocab_all[i], args)
-
-    print("-"*30+"training finished"+'-'*30)
+    print()
+    print("training finished")
     for i in range(10):
         greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), word2idx, target2idx, encoder, decoder, ext_vocab_all[i], args)
 
@@ -202,8 +205,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--USE_CUDA",action="store_true")
     parser.add_argument("-beam_size",action="store", type=int)
+    parser.add_argument("-show_res",action="store", type=int)
+    parser.add_argument("-batch",action="store", type=int)
     args = parser.parse_args()
 
     article, title, word2idx, target2idx, maxl, vocab_size = prepare_training()
-    article, title, lengths = sort_pad(article, title, word2idx,  maxl)
-    training(article, title, word2idx, target2idx, maxl, vocab_size, lengths, args)
+    article, title, source_lengths, target_lengths = sort_pad(article, title, word2idx,  maxl)
+    training(article, title, word2idx, target2idx, maxl, vocab_size, source_lengths, target_lengths, args)

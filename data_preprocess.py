@@ -56,7 +56,7 @@ def read_textfile(DATA_DIR='sumdata/train'):
     title = []
     wc = 3
     max_a, max_t = 0, 0
-    thres = 1000
+    thres = 700000
     tc = 0
     with open(os.path.join(DATA_DIR,'train.article.txt'),'r') as fx:
         for line in fx:
@@ -105,15 +105,17 @@ def read_textfile(DATA_DIR='sumdata/train'):
 
 
 def padding(article, title, word2idx, maxl):
+    src_l = []
     tgt_l = []
     max_a, max_t = maxl
     #print([len(x) for x in article])
     for i, _  in enumerate(zip(article, title)):
-        tgt_l.append(len(article[i]))
+        src_l.append(len(article[i]))
+        tgt_l.append(len(title[i]))
         article[i] += ['PAD' for _ in range(max_a - len(article[i]))]
         title[i] += ['PAD' for _ in range(max_t - len(title[i]))]
 
     #print(tgt_l)
-    return [article, title, tgt_l]
+    return [article, title, src_l, tgt_l]
 
 

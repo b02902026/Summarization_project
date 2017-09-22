@@ -16,7 +16,7 @@ class Encoder(nn.Module):
     def forward(self, word, hidden, lengths):
         emb = self.embedder(word)
         packed = pack_padded_sequence(emb, lengths,batch_first=True)
-        output, h = self.gru(packed, hidden)
+        output, h = self.gru(packed, None)
         outputs, output_lengths = pad_packed_sequence(output, batch_first=True)
         return outputs, h
 

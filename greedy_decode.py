@@ -48,6 +48,7 @@ def greedy_eval(input_seq, target, pointed, word2idx, target2idx,encoder,decoder
     print("-"*30)
     print("decoded:")
     print(decoded_words)
+    print("-"*30)
     encoder.train(True)
     decoder.train(True)
 
