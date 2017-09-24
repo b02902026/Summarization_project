@@ -10,6 +10,7 @@ import argparse
 
 from greedy_decode import greedy_eval
 import prepare_data as utils
+import decode
 from training import train_on_batch
 
 def to_tensor(data):
@@ -20,6 +21,7 @@ def prepare_training():
     article, title, word2idx, target2idx, maxl = read_textfile()
     vocab_size = len(word2idx)
     article, title = utils.sort_by_length(article, title)
+    #article, title = utils.sort_by_target(article, title)
     article, title, source_lengths, target_lengths = utils.padding(article, title)
     article, title = utils.indexing(article, title, word2idx, target2idx)
 
@@ -45,8 +47,8 @@ def train(article, title, word2idx, target2idx, source_lengths, target_lengths, 
 
     encoder = Encoder(len(word2idx))
     decoder = Decoder(len(target2idx))
-    optimizer = torch.optim.RMSprop(list(encoder.parameters()) + list(decoder.parameters()), lr=0.001, weight_decay=0.99999)
-    n_epoch = 5000
+    optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=0.001)
+    n_epoch = 5
     print("Making word index and extend vocab")
     #article, article_tar, title, ext_vocab_all, ext_count = indexing_word(article, title, word2idx, target2idx)
     article = to_tensor(article)
@@ -75,23 +77,21 @@ def train(article, title, word2idx, target2idx, source_lengths, target_lengths, 
                                          batch_x, batch_y, x_lengths, y_lengths,
                                          word2idx, target2idx)
 
-            print('\repoch:{}/{}, batch:{}/{}, loss:{}'.format(epoch+1, n_epoch, b+1, batch_n, current_loss), end='')
-            if b % args.show_res == 0 and b != 0:
+            print('epoch:{}/{}, batch:{}/{}, loss:{}'.format(epoch+1, n_epoch, b+1, batch_n, current_loss))
+            if (b+1) % args.show_res == 0:
                 torch.save(encoder.state_dict(), 'encoder.pth.tar')
                 torch.save(decoder.state_dict(), 'decoder.pth.tar')
-                print('\n'+'-'*30)
                 for i in range(3):
-                    pass
-                    greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0),
-                                article_tar[i], word2idx, target2idx, encoder,
-                                decoder, ext_vocab_all[i], args)
+                    decode.beam_search(encoder, decoder, article[i].unsqueeze(0),
+                                title[i].unsqueeze(0),  word2idx, target2idx)
             total_loss += current_loss
+            print('-'*30)
 
     print()
     print("training finished")
     for i in range(10):
-        greedy_eval(article[i].unsqueeze(0), title[i].unsqueeze(0), word2idx,
-                    target2idx, encoder, decoder, ext_vocab_all[i], args)
+        decode.greedy(encoder, decoder, article[i].unsqueeze(0),
+                    title[i].unsqueeze(0), word2idx, target2idx)
 
 
 def beam_search(input_seq, target, word2idx, target2idx,encoder,decoder,args):

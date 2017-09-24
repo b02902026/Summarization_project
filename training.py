@@ -17,7 +17,9 @@ def train_on_batch(encoder, decoder, opt, source, target, source_lengths,
     decoder_input = Variable(torch.LongTensor([target_vocab['SOS']]*batch_size)).view(batch_size,1).cuda()
 
     for step in range(max(target_lengths)):
-        word_dist, decoder_hidden, decoder_cell = decoder(decoder_input, decoder_hidden, decoder_cell)
+        word_dist, decoder_hidden, decoder_cell = decoder(decoder_input, decoder_hidden,
+                                                          decoder_cell, encoder_output,
+                                                          max(source_lengths))
         loss += loss_fn(word_dist, target[:,step])
         decoder_input = target[:,step].cuda()
 

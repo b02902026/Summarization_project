@@ -65,12 +65,34 @@ def sort_by_length(source, target):
     st = sorted(zip(source, target), key=lambda x:len(x[0]), reverse=True)
     source_s, target_s = zip(*st)
     if not isinstance(source_s, list):
-        print(type(source_s))
         source_s = list(source_s)
     if not isinstance(target_s, list):
-        print(type(target_s))
         target_s = list(target_s)
 
     return [source_s, target_s]
+
+def sort_target(source, target):
+
+    st = sorted(zip(source, target), key=lambda x:len(x[1]))
+    source_s, target_s = zip(*st)
+    if not isinstance(source_s, list):
+        source_s = list(source_s)
+    if not isinstance(target_s, list):
+        target_s = list(target_s)
+
+    return [source_s, target_s]
+
+def sort_batch(source, target, source_lengths):
+
+    st = sorted(zip(source, target, source_lengths), key=lambda x:x[2], reverse=True)
+    source_s, target_s, source_lengths = zip(*st)
+    if not isinstance(source_s, list):
+        source_s = list(source_s)
+    if not isinstance(target_s, list):
+        target_s = list(target_s)
+    if not isinstance(source_lengths, list):
+        source_lengths = list(source_lengths)
+
+    return [source_s, target_s, source_lengths]
 
 

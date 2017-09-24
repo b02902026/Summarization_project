@@ -9,16 +9,15 @@ def greedy_eval(input_seq, target, pointed, word2idx, target2idx,encoder,decoder
     encoder.train(False)
     decoder.train(False)
 
-
     max_length = input_seq.size(1)
     input_seq = input_seq.cuda()
     target = target.cuda()
     pointed = Variable(torch.LongTensor([pointed])).cuda()
-    enc_out, enc_hidden = encoder(input_seq, None, [max_length])
+    enc_out, enc_hidden = encoder(input_seq,  [max_length])
     dec_input = Variable(torch.LongTensor([[word2idx['SOS']]]))
     if args.USE_CUDA:
         dec_input = dec_input.cuda()
-    dec_hidden = enc_hidden[0].unsqueeze(0)
+    dec_hidden = enc_hidden[0]
     for i in range(max_length):
         dec_output, dec_hidden = decoder(dec_input, dec_hidden, enc_out, max_length, len(ext_vocab), pointed)
         v, idx = dec_output.cpu().data.topk(1)

@@ -56,7 +56,7 @@ def read_textfile(DATA_DIR='sumdata/train'):
     title = []
     wc = 3
     max_a, max_t = 0, 0
-    thres = 100
+    thres = 1000000
     tc = 0
     with open(os.path.join(DATA_DIR,'train.article.txt'),'r') as fx:
         for line in fx:
