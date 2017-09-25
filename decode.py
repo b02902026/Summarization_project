@@ -34,7 +34,7 @@ def beam_search(encoder, decoder, source, target, source_vocab, target_vocab):
     candidate = []
     decoded_pool = []
     trace_back = []
-    beam_size = 5
+    beam_size = 16
 
     seq_len = source.size(1)
     source = source.cuda()

@@ -81,7 +81,7 @@ def train(article, title, word2idx, target2idx, source_lengths, target_lengths, 
             if (b+1) % args.show_res == 0:
                 torch.save(encoder.state_dict(), 'encoder.pth.tar')
                 torch.save(decoder.state_dict(), 'decoder.pth.tar')
-                for i in range(3):
+                for i in range(5):
                     decode.beam_search(encoder, decoder, article[i].unsqueeze(0),
                                 title[i].unsqueeze(0),  word2idx, target2idx)
             total_loss += current_loss
