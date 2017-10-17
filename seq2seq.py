@@ -22,19 +22,26 @@ class Encoder(nn.Module):
         return outputs, states[0], states[1]
 
 class Decoder(nn.Module):
-    def __init__(self, vocab_size):
+    def __init__(self, vocab_size, max_ext_size):
         super(Decoder, self).__init__()
         self.hidden_size = 256
         self.embedding_size = 128
         self.target_vocab_size = vocab_size
-        self.embed = nn.Embedding(vocab_size, self.embedding_size)
+        # define layers
+        self.embed = nn.Embedding(vocab_size + max_ext_size, self.embedding_size)
         self.rnn_cell = nn.LSTMCell(self.embedding_size, self.hidden_size)
         self.attn_linear = nn.Linear(self.hidden_size*3,self.hidden_size)
         self.v = nn.Parameter(torch.randn([self.hidden_size]))
         self.project = nn.Linear(self.hidden_size*3,self.hidden_size)
         self.output_projection = nn.Linear(self.hidden_size, vocab_size)
+        # define matrices
+        self.contextW = nn.Parameter(torch.randn(self.hidden_size*2, 1))
+        self.hiddenW = nn.Parameter(torch.randn(self.hidden_size, 1))
+        self.wordW = nn.Parameter(torch.randn(self.embedding_size, 1))
+        self.b = nn.Parameter(torch.randn(1))
 
-    def forward(self, word, hidden, cell, encoder_output, max_source_len):
+    def forward(self, word, hidden, cell, encoder_output,
+                max_source_len, source_mapping, max_ext_length):
 
         batch_size = word.size(0)
         embedded = self.embed(word) # shape (batch, 1 ,embeding_size)
@@ -57,6 +64,30 @@ class Decoder(nn.Module):
         cat_project = self.project(cat)
         word_distribution = self.output_projection(cat_project)
 
-        return word_distribution, h_t, c_t
 
+        if max_ext_length == 0:
+            print("No OOV")
+            extend_word_distribution = word_distribution
+        else:
+            zero_matrix = Variable(torch.zeros(batch_size,
+                                            max_ext_length)).cuda()
+            extend_word_distribution = torch.cat((word_distribution,
+                                                zero_matrix),
+                                                1)
+        attention_distribution = Variable(torch.zeros(batch_size,
+                                                     self.target_vocab_size + max_ext_length)).cuda()
+        for step in range(max_source_len):
+            attention_placeholder = Variable(torch.zeros(batch_size,
+                                                        self.target_vocab_size + max_ext_length)).cuda()
+            attention_distribution += attention_placeholder.scatter_(1,
+                                                                     source_mapping[:,step].unsqueeze(1),
+                                                                     attention_matrix[:,step].unsqueeze(1))
+
+        Pgen = context.mm(self.contextW) + h_t.mm(self.hiddenW) + \
+            embedded.mm(self.wordW)
+        Pgen = Pgen.add(self.b)
+        word_distribution = Pgen * extend_word_distribution + \
+            (1-Pgen) * attention_distribution
+
+        return word_distribution, h_t, c_t
 

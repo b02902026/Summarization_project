@@ -27,14 +27,14 @@ def index_and_extend(source, target, source_vocab, target_vocab):
             if word in source_vocab:
                 source[sid][wid] = source_vocab[word]
             else:
-                raise KeyError
-
+                source[sid][wid] = source_vocab['UNK']
+            # make extend
             if word in target_vocab:
                 extend_source[sid][wid] = target_vocab[word]
             elif word in extend_vocab[sid]:
-                extend_source[sid][wid] = extend_source[sid][word]
+                extend_source[sid][wid] = extend_vocab[sid][word]
             else:
-                extend_vocab[word] = len(target_vocab) + extend_count[sid]
+                extend_vocab[sid][word] = len(target_vocab) + extend_count[sid]
                 extend_source[sid][wid] = extend_vocab[sid][word]
                 extend_count[sid] += 1
 
@@ -43,7 +43,7 @@ def index_and_extend(source, target, source_vocab, target_vocab):
             if word in target_vocab:
                 target[sid][wid] = target_vocab[word]
             else:
-                raise KeyError
+                target[sid][wid] = target_vocab['UNK']
 
     return [source, extend_source, target, extend_vocab, extend_count]
 

@@ -1,4 +1,5 @@
 import sys, os
+from collections import OrderedDict
 from copy import deepcopy
 
 USE_TS = True
@@ -26,14 +27,14 @@ def indexing_word(article, title, word2idx, target2idx):
                 article[sid][wid] = word2idx[w]
             else:
                 print(w)
-                article[sid][wid] = word2idx['UNK']
+                article[sid][wid] = word2idx['<unk>']
 
     for sid,s in enumerate(title):
         for wid,w in enumerate(s):
             if w in target2idx:
                 title[sid][wid] = target2idx[w]
             else:
-                title[sid][wid] = target2idx['UNK']
+                title[sid][wid] = target2idx['<unk>']
 
 
     return [article, article_tar, title, ext_vocab, ext_count]
@@ -41,33 +42,36 @@ def indexing_word(article, title, word2idx, target2idx):
 def make_word_idx_dict(word_freq, sw = None):
     word2idx = {'PAD':0, 'SOS':1, 'EOS':2}
     wc = 3
-    for k,v in word_freq.items():
-        if v > 0:
-            word2idx[k] = wc
-            wc += 1
+    import operator
+    word_freq_list = sorted(word_freq.items(), key=operator.itemgetter(1), reverse=True)
+    for k,v in word_freq_list:
+        if wc >= 50000:
+            break
+        word2idx[k] = wc
+        wc += 1
 
     return word2idx
 
-def read_textfile(DATA_DIR='sumdata/train'):
+def read_textfile(DATA_DIR='sumdata/train', thres=100):
     #word2idx = {'PAD':0, 'SOS':1, 'EOS':2}
     word_freq_s = {}
     word_freq_t = {}
+    word_freq = {}
     article = []
     title = []
     wc = 3
     max_a, max_t = 0, 0
-    thres = 1000000
     tc = 0
     with open(os.path.join(DATA_DIR,'train.article.txt'),'r') as fx:
         for line in fx:
             words = line.strip().split()
             wid_list = []
             for w in words:
-                if w not in word_freq_s:
-                    word_freq_s[w] = 0
+                if w not in word_freq:
+                    word_freq[w] = 0
                     #word2idx[w] = wc
                     #wc += 1
-                word_freq_s[w] += 1
+                word_freq[w] += 1
                 wid_list.append(w)
 
             wid_list.append('EOS')
@@ -83,11 +87,11 @@ def read_textfile(DATA_DIR='sumdata/train'):
             words = line.strip().split()
             wid_list = []
             for w in words:
-                if w not in word_freq_t:
-                    word_freq_t[w] = 0
+                if w not in word_freq:
+                    word_freq[w] = 0
                     #word2idx[w] = wc
                     #wc += 1
-                word_freq_t[w] += 1
+                word_freq[w] += 1
                 wid_list.append(w)
 
             wid_list.append('EOS')
@@ -97,8 +101,9 @@ def read_textfile(DATA_DIR='sumdata/train'):
                 tc += 1
                 if tc >= thres: break
 
-    word2idx = make_word_idx_dict(word_freq_s)
-    target2idx = make_word_idx_dict(word_freq_t)
+    word2idx = make_word_idx_dict(word_freq)
+    target2idx = word2idx
+    #target2idx = make_word_idx_dict(word_freq)
     #article, title, ext_vocab = indexing_word(article, title, word2idx, target2idx)
 
     return [article, title, word2idx, target2idx, (max_a, max_t)]

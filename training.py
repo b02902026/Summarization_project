@@ -3,7 +3,8 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 def train_on_batch(encoder, decoder, opt, source, target, source_lengths,
-                   target_lengths, source_vocab, target_vocab):
+                   target_lengths, source_vocab, target_vocab, source_extend=None,
+                   extend_lengths=None):
 
     # Argument : source should be (batch, seq) ; target should be (batch, seq)
     batch_size = len(source)
@@ -19,7 +20,9 @@ def train_on_batch(encoder, decoder, opt, source, target, source_lengths,
     for step in range(max(target_lengths)):
         word_dist, decoder_hidden, decoder_cell = decoder(decoder_input, decoder_hidden,
                                                           decoder_cell, encoder_output,
-                                                          max(source_lengths))
+                                                          max(source_lengths),
+                                                          source_extend,
+                                                          max(extend_lengths))
         loss += loss_fn(word_dist, target[:,step])
         decoder_input = target[:,step].cuda()
 
