@@ -1,4 +1,7 @@
 from copy import deepcopy
+import torch
+from torch.autograd import Variable
+import numpy as np
 def indexing(source, target, source_vocab, target_vocab):
 
     for sid, sentence in enumerate(source):
@@ -17,6 +20,18 @@ def indexing(source, target, source_vocab, target_vocab):
 
     return [source, target]
 
+def batch_index(article, title, word2idx, target2idx):
+    article_b = deepcopy(article)
+    title_b = deepcopy(title)
+    article_b, extend_article_b, title_b, extend_vocab_b, extend_count_b = \
+        index_and_extend(article_b, title_b, word2idx, target2idx)
+
+    article_b = to_tensor(article_b)
+    extend_article_b = to_tensor(extend_article_b)
+    title_b = to_tensor(title_b)
+
+    return [article_b, extend_article_b, title_b, extend_vocab_b, extend_count_b]
+
 def index_and_extend(source, target, source_vocab, target_vocab):
 
     extend_source = deepcopy(source)
@@ -27,6 +42,7 @@ def index_and_extend(source, target, source_vocab, target_vocab):
             if word in source_vocab:
                 source[sid][wid] = source_vocab[word]
             else:
+                #raise KeyError('{} not in vocab'.format(word))
                 source[sid][wid] = source_vocab['UNK']
             # make extend
             if word in target_vocab:
@@ -42,21 +58,40 @@ def index_and_extend(source, target, source_vocab, target_vocab):
         for wid, word in enumerate(sentence):
             if word in target_vocab:
                 target[sid][wid] = target_vocab[word]
+            elif word in extend_vocab[sid]:
+                target[sid][wid] = extend_vocab[sid][word]
             else:
                 target[sid][wid] = target_vocab['UNK']
+                #raise KeyError('{} not in vocab'.format(word))
 
     return [source, extend_source, target, extend_vocab, extend_count]
 
-def padding(source, target):
+def sampling(source, target, sl, tl, val_size):
 
-    source_lengths = [len(x) for x in source]
-    target_lengths = [len(x) for x in target]
+    val_source, val_target, val_sl, val_tl = [], [], [], []
+    for _ in range(val_size):
+        idx = np.random.randint(0, len(source))
+        val_source.append(source.pop(idx))
+        val_target.append(target.pop(idx))
+        val_sl.append(sl.pop(idx))
+        val_tl.append(tl.pop(idx))
+
+    return [val_source, val_target, val_sl, val_tl]
+
+
+def padding(source, target, truncate=1000000):
+
+
+    source_lengths = [min(len(x),truncate) for x in source]
+    target_lengths = [min(len(x),truncate) for x in target]
     max_source = max(source_lengths)
     max_target = max(target_lengths)
 
     for i, _ in enumerate(source):
         source[i] += ['PAD' for e in range(max_source - source_lengths[i])]
         target[i] += ['PAD' for e in range(max_target - target_lengths[i])]
+        source[i] = source[i][:max_source]
+        target[i] = target[i][:max_target]
 
     return [source, target, source_lengths, target_lengths]
 
@@ -95,4 +130,18 @@ def sort_batch(source, target, source_lengths):
 
     return [source_s, target_s, source_lengths]
 
+def save_data(data, filename):
+    with open(filename,'wb') as f:
+        pickle.dump(data,f)
 
+def load_data(filename):
+
+    if os.path.exists(filename):
+        with open(filename,'rb') as f:
+            data = pickle.load(f)
+        return data
+
+
+def to_tensor(data):
+    data1 = Variable(torch.LongTensor(data))
+    return data1

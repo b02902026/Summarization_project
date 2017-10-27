@@ -47,7 +47,9 @@ class Decoder(nn.Module):
         embedded = self.embed(word) # shape (batch, 1 ,embeding_size)
         embedded = embedded.squeeze(1)
         h_t, c_t = self.rnn_cell(embedded, (hidden, cell))
-        h_t = F.tanh(h_t)
+        next_h_t = h_t
+        #h_t = F.tanh(h_t)
+        #encoder_output = F.tanh(encoder_output)
         #final_out = self.output_projection(out)
         #word_distribution = final_out
         attention_matrix = Variable(torch.zeros(batch_size,max_source_len)).cuda()  # shape (batch, seq_len)
@@ -59,14 +61,18 @@ class Decoder(nn.Module):
         # attention matrix is (batch, seq_len), so unsqueeze it to be (batch, 1,
         # seq_len) to perform batch mm with encoder hidden state (batch,
         # seq_len, hidden) -> context will be (batch, 1, hidden) then squeeze
+
+        #attention_matrix = F.softmax(attention_matrix)
         context = F.softmax(attention_matrix).unsqueeze(1).bmm(encoder_output).squeeze(1)
         cat = torch.cat((context, h_t),1)
         cat_project = self.project(cat)
         word_distribution = self.output_projection(cat_project)
-
+        # Tranform to distribution
+        word_distribution = F.softmax(word_distribution)
+        attention_matrix = F.softmax(attention_matrix)
 
         if max_ext_length == 0:
-            print("No OOV")
+            #raise NotImplementedError('Should not enter in here')
             extend_word_distribution = word_distribution
         else:
             zero_matrix = Variable(torch.zeros(batch_size,
@@ -76,6 +82,11 @@ class Decoder(nn.Module):
                                                 1)
         attention_distribution = Variable(torch.zeros(batch_size,
                                                      self.target_vocab_size + max_ext_length)).cuda()
+        '''
+        attention_distribution = attention_distribution.scatter_(1,
+                                                                 source_mapping,
+                                                                 attention_matrix)
+        '''
         for step in range(max_source_len):
             attention_placeholder = Variable(torch.zeros(batch_size,
                                                         self.target_vocab_size + max_ext_length)).cuda()
@@ -86,8 +97,11 @@ class Decoder(nn.Module):
         Pgen = context.mm(self.contextW) + h_t.mm(self.hiddenW) + \
             embedded.mm(self.wordW)
         Pgen = Pgen.add(self.b)
+        Pgen = F.sigmoid(Pgen)
         word_distribution = Pgen * extend_word_distribution + \
             (1-Pgen) * attention_distribution
 
-        return word_distribution, h_t, c_t
+        word_distribution = word_distribution.clamp(min=1e-8).log()
+
+        return word_distribution, next_h_t, c_t, attention_matrix
 

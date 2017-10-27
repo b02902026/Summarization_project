@@ -2,19 +2,25 @@ import torch
 from torch.autograd import Variable
 from torch.nn import functional as F
 from math import log
+import numpy as np
+from rouge import Rouge
 
-def greedy(encoder, decoder, source, target, source_vocab, target_vocab):
+def greedy(encoder, decoder, source, target, source_vocab, target_vocab,
+           source_mapping=None, ext_length=None, ext_vocab=None):
 
     decoded = []
     seq_len = source.size(1)
     source = source.cuda()
     target = target.cuda()
+    source_mapping = source_mapping.cuda().unsqueeze(0)
     output, h_n, c_n = encoder(source,[seq_len])
     decoder_h = h_n[0]
     decoder_c = c_n[0]
     decoder_input = Variable(torch.LongTensor([[target_vocab['SOS']]])).cuda()
     for step in range(seq_len):
-        decode_output, decoder_h, decoder_c = decoder(decoder_input, decoder_h, decoder_c, output,seq_len)
+        decode_output, decoder_h, decoder_c = decoder(decoder_input, decoder_h,
+                                                      decoder_c, output,seq_len,
+                                                      source_mapping, ext_length)
         v, idx = decode_output.cpu().data.topk(1)
         if idx[0][0] == target_vocab['EOS']:
             break
@@ -24,9 +30,10 @@ def greedy(encoder, decoder, source, target, source_vocab, target_vocab):
     # make inverse vocab
     reverse_src = reverse_mapping(source_vocab)
     reverse_tar = reverse_mapping(target_vocab)
+    reverse_ext = reverse_mapping(ext_vocab)
 
-    decoded_string = "".join(reverse_tar[w]+' ' for w in decoded)
-    print_result(source, target, decoded_string, reverse_src, reverse_tar)
+    decoded_string = "".join([reverse_tar[w]+' ' if w in reverse_tar else reverse_ext[w]+' ' for w in decoded])
+    print_result(source, target, decoded_string, reverse_src, reverse_tar,reverse_ext)
 
 def beam_search(encoder, decoder, source, target, source_vocab, target_vocab,
                 source_mapping=None, ext_length=None, ext_vocab=None):
@@ -41,8 +48,7 @@ def beam_search(encoder, decoder, source, target, source_vocab, target_vocab,
     beam_size = 16
     tail_pos = []
     ended = 0
-
-    seq_len = source.size(1)
+    seq_len = source.size(1) if source.cpu().data.numpy()[0][-1] != 0 else int(np.where(source.data.cpu().numpy()==0)[1][0])
     source = source.cuda()
     target = target.cuda()
     source_mapping = source_mapping.cuda().unsqueeze(0)
@@ -51,14 +57,14 @@ def beam_search(encoder, decoder, source, target, source_vocab, target_vocab,
     decoder_c = c_n[0]
     decoder_input = Variable(torch.LongTensor([[target_vocab['SOS']]])).cuda()
     candidate.append((decoder_input,decoder_h,decoder_c,0))
-    for step in range(seq_len):
+    for step in range(seq_len-1):
         for k, cand in enumerate(candidate):
             if cand == 'DUMMY': continue
             word, h_t, c_t, last_prob = cand[0], cand[1], cand[2], cand[3]
-            decoder_out, decoder_h, decoder_c = decoder(word, h_t, c_t,
+            decoder_out, decoder_h, decoder_c, attn = decoder(word, h_t, c_t,
                                                         encoder_output, seq_len,
                                                         source_mapping, ext_length)
-            decoder_out = F.log_softmax(decoder_out)
+            #decoder_out = F.log_softmax(decoder_out)
 
             summed_decoder_output = decoder_out.cpu().data + last_prob
             #vocab_prob.append(decoder_out.squeeze(0).numpy())
@@ -75,46 +81,62 @@ def beam_search(encoder, decoder, source, target, source_vocab, target_vocab,
             if next_word == source_vocab['EOS']:
                 beam_size -= 1
                 current_record.append((next_word, p, k))
-                tail_pos.append((step-1, k))
+                tail_pos.append((step, i))
                 candidate.append('DUMMY')
             else:
                 candidate.append((Variable(torch.LongTensor([[next_word]])).cuda(), h, c, p))
                 current_record.append((next_word, p, k))
+                if step == seq_len - 2:
+                    tail_pos.append((step, i))
 
         decoded_pool = []
         trace_back.append(current_record[:])
         if beam_size == 0:
             break
-        if step == seq_len - 1:
-            tail_pos.append((step-1, k))
-
 
     reverse_src = reverse_mapping(source_vocab)
     reverse_tar = reverse_mapping(target_vocab)
     reverse_ext = reverse_mapping(ext_vocab)
-    decoded_string = beam_decode(trace_back, reverse_tar, reverse_ext, tail_pos, beam_size)
+    decoded_string = beam_decode(trace_back, reverse_tar, reverse_ext, tail_pos)
     print_result(source, target, decoded_string, reverse_src, reverse_tar, reverse_ext)
 
-def beam_decode(trace_back, reverse_tar, reverse_ext,tail_pos, topk=3):
+
+def beam_decode(trace_back, reverse_tar, reverse_ext,tail_pos, topk=16):
 
     decoded_all = ''
+    probs = []
+    decoded_store = []
     for k in range(topk):
-        if len(trace_back[-1]) <= k:
-            decoded_all += "(empty)\n" + '-'*30 + '\n'
-            break
-        #start_step = tail_pos[-1-k][0]
-        #start_pos = tail_pos[-1-k][1]
+        prob = 0
+        start_step = tail_pos[k][0]
+        start_pos = tail_pos[k][1]
         decoded = []
-        prev_word = trace_back[-1][k][2]
-        #prev_word = trace_back[start_step][start_pos][2]
-        for back_step in reversed(trace_back[:-1]):
+
+        prev_word = trace_back[start_step][start_pos][2]
+        cur_word = trace_back[start_step][start_pos][0]
+        prob = trace_back[start_step][start_pos][1]
+        if cur_word != 2:
+            decoded.append(cur_word)
+        for back_step in reversed(trace_back[:start_step]):
             decoded.append(back_step[prev_word][0])
             prev_word = back_step[prev_word][2]
 
         decoded = list(reversed(decoded))
-        decoded_all += "".join([reverse_tar[w]+' ' if w in reverse_tar else reverse_ext[w]+' ' for w in decoded])
-        decoded_all += '\n' + '-'*30 + '\n'
+        decoded_store.append(decoded[:])
+        probs.append(prob / (len(decoded)+1))
+        #decoded_all += "({}) ".format(k+1)
+        #decoded_all += "".join([reverse_tar[w]+' ' if w in reverse_tar else reverse_ext[w]+' ' for w in decoded])
+        #decoded_all += '\n' + '-'*30 + '\n'
+
+    max_decoded_index = np.argmax(probs)
+    decoded_all = "".join([reverse_tar[w]+' ' if w in reverse_tar else reverse_ext[w]+' ' for w in decoded_store[max_decoded_index]])
+
     return decoded_all
+
+def get_score(decoded, target):
+    rouge = Rouge()
+    scores = rouge.get_scores(decoded, target)
+    return scores
 
 def print_result(source, target, decoded_string, reverse_src, reverse_tar, reverse_ext):
 
@@ -124,10 +146,14 @@ def print_result(source, target, decoded_string, reverse_src, reverse_tar, rever
         source_string.append(reverse_src[w])
     for w in target.data[0]:
         if w == 2:    break
-        target_string.append(reverse_tar[w])
+        if w not in reverse_tar:
+            target_string.append(reverse_ext[w])
+        else:
+            target_string.append(reverse_tar[w])
 
     source_string = "".join(w+' ' for w in source_string)
     target_string = "".join(w+' ' for w in target_string)
+    score = get_score(decoded_string, target_string)
     # print the ground truth and decoded
     print('-'*30)
     print("source:")
@@ -138,6 +164,9 @@ def print_result(source, target, decoded_string, reverse_src, reverse_tar, rever
     print('-'*30)
     print("decoded:")
     print(decoded_string)
+    print('-'*30)
+    print("score:")
+    print(score[0])
 
 
 def reverse_mapping(voc):
