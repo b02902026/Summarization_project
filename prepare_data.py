@@ -2,6 +2,7 @@ from copy import deepcopy
 import torch
 from torch.autograd import Variable
 import numpy as np
+import pickle
 def indexing(source, target, source_vocab, target_vocab):
 
     for sid, sentence in enumerate(source):
@@ -77,6 +78,24 @@ def sampling(source, target, sl, tl, val_size):
         val_tl.append(tl.pop(idx))
 
     return [val_source, val_target, val_sl, val_tl]
+
+def save_everything(x, y, sl, tl, val_x, val_y, val_sl, val_tl, vocab):
+
+    file_names = {'x':x, 'y':y, 'sl':sl, 'tl':tl, 'val_x':val_x, 'val_y':val_y,
+                  'val_sl':val_sl, 'val_tl':val_tl, 'vocab':vocab}
+    for name,obj in file_names.items():
+        with open('./temp/{}.pkl'.format(name), 'wb') as f:
+            pickle.dump(obj, f)
+
+def load_everything():
+
+    file_names = ['x', 'y', 'sl', 'tl', 'val_x', 'val_y','val_sl', 'val_tl', 'vocab']
+    instances = []
+    for name in file_names:
+        with open('./temp/{}.pkl'.format(name), 'rb') as f:
+            instances.append(pickle.load(f))
+
+    return instances
 
 
 def padding(source, target, truncate=1000000):

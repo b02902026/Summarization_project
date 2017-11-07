@@ -45,7 +45,7 @@ def beam_search(encoder, decoder, source, target, source_vocab, target_vocab,
     decoded_pool = []
     vocab_prob = []
     trace_back = []
-    beam_size = 16
+    beam_size = 4
     tail_pos = []
     ended = 0
     seq_len = source.size(1) if source.cpu().data.numpy()[0][-1] != 0 else int(np.where(source.data.cpu().numpy()==0)[1][0])
@@ -97,7 +97,7 @@ def beam_search(encoder, decoder, source, target, source_vocab, target_vocab,
     reverse_src = reverse_mapping(source_vocab)
     reverse_tar = reverse_mapping(target_vocab)
     reverse_ext = reverse_mapping(ext_vocab)
-    decoded_string = beam_decode(trace_back, reverse_tar, reverse_ext, tail_pos)
+    decoded_string = beam_decode(trace_back, reverse_tar, reverse_ext, tail_pos, beam_size)
     print_result(source, target, decoded_string, reverse_src, reverse_tar, reverse_ext)
 
 
@@ -106,7 +106,8 @@ def beam_decode(trace_back, reverse_tar, reverse_ext,tail_pos, topk=16):
     decoded_all = ''
     probs = []
     decoded_store = []
-    for k in range(topk):
+    for k in range(4):
+
         prob = 0
         start_step = tail_pos[k][0]
         start_pos = tail_pos[k][1]
@@ -115,6 +116,7 @@ def beam_decode(trace_back, reverse_tar, reverse_ext,tail_pos, topk=16):
         prev_word = trace_back[start_step][start_pos][2]
         cur_word = trace_back[start_step][start_pos][0]
         prob = trace_back[start_step][start_pos][1]
+
         if cur_word != 2:
             decoded.append(cur_word)
         for back_step in reversed(trace_back[:start_step]):

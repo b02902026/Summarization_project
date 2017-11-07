@@ -36,17 +36,19 @@ def prepare_training(args):
 
 
 def train(article, title, word2idx, target2idx, source_lengths, target_lengths,
-          args, article_extend=None, extend_vocab=None, extend_counts=None):
+          args, val_article=None, val_title=None, val_source_lengths=None,
+          val_target_lengths=None):
 
+    if not os.path.exists('./temp/x.pkl'):
+        size_of_val = int(len(article)*0.05)
+        val_article, val_title, val_source_lengths, val_target_lengths = \
+            utils.sampling(article, title, source_lengths, target_lengths, size_of_val)
 
+        utils.save_everything(article, title, source_lengths, target_lengths,
+                            val_article, val_title, val_source_lengths, val_target_lengths,
+                            word2idx)
 
-    size_of_val = int(len(article)*0.05)
-
-    val_article, val_title, val_source_lengths, val_target_lengths = \
-        utils.sampling(article, title, source_lengths, target_lengths, size_of_val)
-
-
-
+    size_of_val = len(val_article)
     batch_size = args.batch
     train_size = len(article)
     val_size = len(val_article)
@@ -61,16 +63,11 @@ def train(article, title, word2idx, target2idx, source_lengths, target_lengths,
     print("-"*30)
     use_coverage = False
 
-
     encoder = Encoder(len(word2idx))
     decoder = Decoder(len(target2idx),50)
-    if os.path.exists("encoder_model"):
-        print("Model existed. Loaded...")
-        encoder_w = torch.load("encoder_model")
-        encoder.load_state_dict(encoder_w)
-        decoder_w = torch.load("decoder_model")
-        decoder.load_state_dict(decoder_w)
-
+    if os.path.exists('decoder_model'):
+        encoder.load_state_dict(torch.load('encoder_model'))
+        decoder.load_state_dict(torch.load('decoder_model'))
 
     optimizer = torch.optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=0.001)
     n_epoch = 5
@@ -106,7 +103,6 @@ def train(article, title, word2idx, target2idx, source_lengths, target_lengths,
                 batch_x_ext = batch_x_ext.cuda()
             x_lengths = source_lengths[b*batch_size: (b+1)*batch_size]
             y_lengths = target_lengths[b*batch_size: (b+1)*batch_size]
-            #ext_lengths = extend_counts[b*batch_size: (b+1)*batch_size]
 
             # work around to deal with length
             pack = pack_padded_sequence(batch_x_ext, x_lengths, batch_first=True)
@@ -126,7 +122,7 @@ def train(article, title, word2idx, target2idx, source_lengths, target_lengths,
                 torch.save(decoder.state_dict(), 'decoder_model')
                 batch_x_val, batch_x_ext_val, batch_y_val, extend_vocab, extend_lengths = \
                     utils.batch_index(val_article, val_title, word2idx, target2idx)
-                for i in range(5):
+                for i in range(1):
                     idx = np.random.randint(0,val_size)
                     decode.beam_search(encoder, decoder, batch_x_val[idx].unsqueeze(0),
                                 batch_y_val[idx].unsqueeze(0),  word2idx, target2idx,
@@ -162,16 +158,15 @@ if __name__ == "__main__":
     parser.add_argument("--giga",action="store_true")
     args = parser.parse_args()
 
-    if os.path.exists('data/train_article.pkl'):
-        article = utils.load_data('data/train_article.pkl')
-        title = utils.load_data('data/train_title.pkl')
-        s_lengths = utils.load_data('data/train_sl.pkl')
-        t_lengths = utils.load_data('data/train_tl.pkl')
-        word2idx = utils.load_data('data/vocab.pkl')
+    if os.path.exists('./temp/x.pkl'):
+        article, title, s_lengths, t_lengths,\
+            val_article, val_title, val_source_lengths,\
+            val_target_lengths,word2idx = utils.load_everything()
         target2idx = word2idx
     else:
         article, title, s_lengths, t_lengths, word2idx, target2idx = prepare_training(args)
 
-    train(article, title, word2idx, target2idx, s_lengths, t_lengths, args)
+    train(article, title, word2idx, target2idx, s_lengths, t_lengths, args,
+          val_article, val_title, val_source_lengths, val_target_lengths)
 
 
